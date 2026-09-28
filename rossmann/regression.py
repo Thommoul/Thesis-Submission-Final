@@ -180,3 +180,135 @@ def predict_sales_for_store(store_id, year=None, month=None):
     print(f"\nPredictions saved to Excel at: {output_path}")
 
     return store_df
+
+
+def analyze_sales_factors():
+
+    train_path = os.path.join(DATA_DIR, "train.csv")
+    store_path = os.path.join(DATA_DIR, "store.csv")
+
+    train = pd.read_csv(train_path)
+    store = pd.read_csv(store_path)
+
+
+
+    train["Date"] = pd.to_datetime(train["Date"])
+
+
+
+    data = train.merge(store, on="Store", how="left")
+
+
+
+    data = data[data["Open"] == 1].copy()
+
+
+    data["DayOfWeek"] = data["Date"].dt.dayofweek + 1
+    data["Month"] = data["Date"].dt.month
+
+
+    data["IsChristmas"] = (
+        (data["Date"].dt.month == 12) &
+        (data["Date"].dt.day >= 20)
+    ).astype(int)
+
+
+    data = data[
+        [
+            "Sales",
+            "Promo",
+            "DayOfWeek",
+            "Month",
+            "IsChristmas"
+        ]
+    ].dropna()
+
+
+    data = pd.get_dummies(
+        data,
+        columns=["DayOfWeek", "Month"],
+        drop_first=True,
+        dtype=int
+    )
+
+
+    y = data["Sales"]
+
+    X = data.drop(columns=["Sales"])
+
+    # Προσθήκη σταθερού όρου
+    X = sm.add_constant(X)
+
+
+    model = sm.OLS(y, X).fit()
+
+
+    results = pd.DataFrame({
+        "Μεταβλητή": model.params.index,
+        "Συντελεστής": model.params.values,
+        "p-value": model.pvalues.values
+    })
+
+    results["Σημαντικότητα"] = results["p-value"].apply(
+        lambda x:
+        "Στατιστικά σημαντική" if x < 0.05
+        else "Μη στατιστικά σημαντική"
+    )
+
+
+    model_stats = pd.DataFrame({
+        "Δείκτης": [
+            "R²",
+            "Adjusted R²",
+            "F-statistic",
+            "Prob (F-statistic)",
+            "Αριθμός παρατηρήσεων"
+        ],
+        "Τιμή": [
+            model.rsquared,
+            model.rsquared_adj,
+            model.fvalue,
+            model.f_pvalue,
+            int(model.nobs)
+        ]
+    })
+
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    output_path = os.path.join(
+        OUTPUT_DIR,
+        "sales_factors_regression.xlsx"
+    )
+
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+
+        results.to_excel(
+            writer,
+            sheet_name="Regression Results",
+            index=False
+        )
+
+        model_stats.to_excel(
+            writer,
+            sheet_name="Model Statistics",
+            index=False
+        )
+
+    print("\n" + "=" * 70)
+    print("ΑΝΑΛΥΣΗ ΕΠΙΔΡΑΣΗΣ ΠΑΡΑΓΟΝΤΩΝ ΣΤΙΣ ΠΩΛΗΣΕΙΣ")
+    print("=" * 70)
+
+    print("\nΣτατιστικά μοντέλου:")
+    print(model_stats.to_string(index=False))
+
+    print("\n\nΣυντελεστές παλινδρόμησης:")
+    print(results.to_string(index=False))
+
+    print("\n\nΑναλυτικά αποτελέσματα:")
+    print(model.summary())
+
+    print("\nΤο αρχείο αποθηκεύτηκε στο:")
+    print(output_path)
+
+    return model, results, model_stats
