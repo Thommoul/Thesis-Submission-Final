@@ -33,7 +33,7 @@ def plot_sales_density():
     plt.xlim(0, 5000)
     plt.show()
 
-# Για να τρέξει γράψτε: "python -c "from rossmann.plots import plot_sales_growth; plot_sales_growth()"
+# Για να τρέξει γράψτε: python -c "from rossmann.plots import plot_sales_growth; plot_sales_growth()"
 def plot_sales_growth():
     train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
     train["Date"] = pd.to_datetime(train["Date"], errors="coerce")

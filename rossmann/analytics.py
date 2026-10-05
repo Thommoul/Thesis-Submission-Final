@@ -1,12 +1,20 @@
 import os
-
+import matplotlib.pyplot as plt
 import pandas as pd
 
 from .config import DATA_DIR, OUTPUT_DIR
 
+DAY_LABELS = {1: "Δευτέρα", 2: "Τρίτη", 3: "Τετάρτη", 4: "Πέμπτη", 5: "Παρασκευή", 6: "Σάββατο", 7: "Κυριακή"}
 
-def sales_by_day_for_year(train, year, plot=True):
-    train = train.copy()
+#Σχόλιο 4.3
+# python -c "from rossmann.analytics import sales_by_day_for_year; sales_by_day_for_year(2014)"
+def sales_by_day_for_year(year, plot=True):
+
+    train = pd.read_csv(
+        os.path.join(DATA_DIR, "train.csv"),
+        low_memory=False
+    )
+
     train["Date"] = pd.to_datetime(train["Date"])
 
     train_year = train[train["Date"].dt.year == year]
@@ -15,23 +23,138 @@ def sales_by_day_for_year(train, year, plot=True):
         print(f"No data found for year {year}.")
         return None
 
-    sales_by_day = train_year.groupby("DayOfWeek", as_index=False)["Sales"].sum()
+    open_days = train_year[train_year["Open"] == 1]
 
-    print(f"\nTotal sales by day of week for {year}:")
-    print(sales_by_day.assign(Sales=sales_by_day["Sales"].apply(lambda x: f"{x:,.0f}")))
+    if open_days.empty:
+        print(f"No open store-days found for year {year}.")
+        return None
+
+    days = list(DAY_LABELS.keys())
+
+    summary = (
+        open_days.groupby("DayOfWeek")["Sales"]
+        .agg(
+            N="count",
+            Mean_Sales="mean",
+            Median_Sales="median"
+        )
+        .reindex(days)
+    )
+
+    summary["N"] = summary["N"].fillna(0).astype(int)
+
+    summary["Total_Sales"] = (
+        train_year
+        .groupby("DayOfWeek")["Sales"]
+        .sum()
+        .reindex(days)
+        .fillna(0)
+    )
+
+    summary = summary.reset_index()
+
+    summary.insert(
+        1,
+        "Day",
+        summary["DayOfWeek"].map(DAY_LABELS)
+    )
+
+    print(
+        f"\nΣυνολικές πωλήσεις ανά Ημέρα Εβδομάδας {year} "
+        f"(Open = 1 only):"
+    )
+
+    print(
+        "Mean/Median = Sales per open store-day; "
+        "N = number of open store-day observations.\n"
+        "Total_Sales is supplementary and depends on N."
+    )
+
+    print(
+        summary.assign(
+            N=summary["N"].map("{:,}".format),
+            Mean_Sales=summary["Mean_Sales"].map(
+                lambda x: "-" if pd.isna(x) else f"{x:,.0f}"
+            ),
+            Median_Sales=summary["Median_Sales"].map(
+                lambda x: "-" if pd.isna(x) else f"{x:,.0f}"
+            ),
+            Total_Sales=summary["Total_Sales"].map(
+                "{:,.0f}".format
+            )
+        ).to_string(index=False)
+    )
 
     if plot:
-        import matplotlib.pyplot as plt
 
-        plt.figure()
-        plt.bar(sales_by_day["DayOfWeek"], sales_by_day["Sales"])
-        plt.title(f"Total Sales by Day of Week ({year})")
-        plt.xlabel("Day of Week")
-        plt.ylabel("Total Sales")
-        plt.xticks([1, 2, 3, 4, 5, 6, 7], ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+        # Figure 1
+        plt.figure(figsize=(8, 5))
+
+        plt.bar(
+            summary["DayOfWeek"],
+            summary["Mean_Sales"].fillna(0),
+            label="Mean"
+        )
+
+        plt.scatter(
+            summary["DayOfWeek"],
+            summary["Median_Sales"],
+            color="black",
+            zorder=3,
+            label="Median"
+        )
+
+        for _, row in summary.iterrows():
+            plt.annotate(
+                f"N={row['N']:,}",
+                (
+                    row["DayOfWeek"],
+                    row["Mean_Sales"]
+                    if pd.notna(row["Mean_Sales"])
+                    else 0
+                ),
+                ha="center",
+                va="bottom",
+                fontsize=8
+            )
+
+        plt.title(
+            f"Μέση πώληση όπου το κατάστημα ήταν ανοιχτό ({year})"
+        )
+        plt.xlabel("Ημέρα της εβδομάδας")
+        plt.ylabel("Πωλήσεις ανά ανοιχτό κατάστημα-ημέρα")
+        plt.xticks(
+            days,
+            [DAY_LABELS[d] for d in days]
+        )
+        plt.legend()
+        plt.tight_layout()
         plt.show()
 
-    return sales_by_day
+
+        # Figure 2
+        plt.figure(figsize=(8, 5))
+
+        plt.bar(
+            summary["DayOfWeek"],
+            summary["Total_Sales"],
+            color="grey"
+        )
+
+        plt.title(
+            f"Συνολικές πωλήσεις ανά ημέρα της εβδομάδας ({year})"
+        )
+        plt.xlabel("Ημέρα της εβδομάδας")
+        plt.ylabel("Συνολικές πωλήσεις")
+        plt.xticks(
+            days,
+            [DAY_LABELS[d] for d in days]
+        )
+
+        plt.tight_layout()
+        plt.show()
+
+    return summary
 
 
 def totalsalesofyear(store_number, year):
