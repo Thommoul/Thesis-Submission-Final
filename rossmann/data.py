@@ -14,9 +14,6 @@ def load_data():
 
 def preprocess_data(store, test, train):
     store = store.drop(["StoreType", "Assortment"], axis=1)
-    test = test.drop("StateHoliday", axis=1)
-    train = train.drop("StateHoliday", axis=1)
-
 
     for df in (train, test):
         date = pd.to_datetime(df["Date"])
