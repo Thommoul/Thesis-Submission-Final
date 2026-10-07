@@ -22,23 +22,34 @@ def moving_average(train, window=7, store_id=None, save=True):
     raw_ma = (
     df.groupby("Store")["Sales"]
     .transform(lambda x: x.rolling(window=window).mean().shift(1)))
-    scaled_ma = (raw_ma / 1000).round(3)
 
-    error = sales - raw_ma
+
+    scaled_sales = sales / 1000
+    scaled_ma = raw_ma / 1000
+
+
+    error = scaled_sales - scaled_ma
     abs_error = error.abs()
-    sq_error = error ** 2
-    ape = (abs_error / sales.replace(0, np.nan)) * 100
+
+
+    raw_error = sales - raw_ma
+    sq_error = (raw_error** 2)/1000
+
+
+    ape = (
+        abs_error / scaled_sales
+    )
 
     result = pd.DataFrame(
         {
             "Store": df["Store"],
             "Date": df["Date"],
-            "Sales": sales,
-            f"Moving_Average,n={window}": scaled_ma,
-            f"Error_{window}": error,
-            f"AbsError_{window}": abs_error,
+            "Sales": scaled_sales.round(3),
+            f"Moving_Average,n={window}": scaled_ma.round(3),
+            f"Error_{window}": error.round(3),
+            f"AbsError_{window}": abs_error.round(3),
             f"SqError_{window}": sq_error,
-            f"APE_{window} (%)": (ape / 100),
+            f"APE_{window} (%)": ape,
         }
     )
 
