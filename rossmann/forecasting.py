@@ -19,7 +19,9 @@ def moving_average(train, window=7, store_id=None, save=True):
 
     sales = df["Sales"]
 
-    raw_ma = sales.rolling(window=window).mean()
+    raw_ma = (
+    df.groupby("Store")["Sales"]
+    .transform(lambda x: x.rolling(window=window).mean().shift(1)))
     scaled_ma = (raw_ma / 1000).round(3)
 
     error = sales - raw_ma
