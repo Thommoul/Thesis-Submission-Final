@@ -69,7 +69,7 @@ def moving_average(train, window=7, store_id=None, save=True):
 
     return result
 
-
+#python -c "from rossmann.forecasting import ses_forecast_store_stats; ses_forecast_store_stats(alpha=0.3, store_id=1)"
 def ses_forecast_store_stats(alpha=0.3, store_id=None):
     train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
 
