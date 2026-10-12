@@ -69,6 +69,64 @@ def moving_average(train, window=7, store_id=None, save=True):
 
     return result
 
+def moving_average_open(train, window=7, store_id=None, save=True):
+    df = train.copy()
+
+    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
+
+    df = df[(df["Open"] == 1) & (df["Sales"] > 0)]
+
+    df = df.sort_values(["Store", "Date"])
+
+    if store_id is not None:
+        df = df[df["Store"] == store_id]
+
+    df = df.reset_index(drop=True)
+
+    sales = df["Sales"]
+
+    raw_ma = (
+        df.groupby("Store")["Sales"]
+        .transform(lambda x: x.rolling(window=window).mean().shift(1))
+    )
+
+    scaled_sales = sales / 1000
+    scaled_ma = raw_ma / 1000
+
+    error = scaled_sales - scaled_ma
+    abs_error = error.abs()
+    sq_error = error ** 2
+    ape = abs_error / scaled_sales * 100
+
+    result = pd.DataFrame(
+        {
+            "Store": df["Store"],
+            "Date": df["Date"],
+            "Sales": scaled_sales.round(3),
+            f"Moving_Average,n={window}": scaled_ma.round(3),
+            f"Error_{window}": error.round(3),
+            f"AbsError_{window}": abs_error.round(3),
+            f"SqError_{window}": sq_error.round(3),
+            f"APE_{window} (%)": ape.round(3),
+        }
+    )
+
+    if save:
+        store_str = f"_store{store_id}" if store_id is not None else ""
+        path = os.path.join(
+            OUTPUT_DIR,
+            f"moving_average_open{window}{store_str}.csv"
+        )
+        result.to_csv(
+            path,
+            index=False,
+            float_format="%.3f",
+            sep=";"
+        )
+        print(f"Saved moving_average_open{window}{store_str}.csv")
+
+    return result
+
 #python -c "from rossmann.forecasting import ses_forecast_store_stats; ses_forecast_store_stats(alpha=0.3, store_id=1)"
 def ses_forecast_store_stats(alpha=0.3, store_id=None):
     train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)

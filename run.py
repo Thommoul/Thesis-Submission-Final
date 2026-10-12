@@ -1,7 +1,7 @@
 """Entry point for the Rossmann Store Sales forecasting pipeline.
 
 Run all analyses:               python run.py --all
-Run one/more steps:             python run.py --steps moving_average sarimax xgboost
+Run one/more steps:             python run.py --steps moving_average sarimax xgboost moving_average_open
 Run one step out of the list:   python -c "from rossmann.plots import plot_store_1_sales; plot_store_1_sales();"
 List available steps:           python run.py --list
 """
@@ -29,6 +29,13 @@ def _(train, store_id=1, window=7, **_kw):
         store_id=store_id
     )
 
+@step("moving_average_open")
+def _(train, store_id=1, window=7, **_kw):
+    forecasting.moving_average_open(
+        train,
+        window=window,
+        store_id=store_id
+    )
 
 @step("ses")
 def _(store_id=1, **_kw):
