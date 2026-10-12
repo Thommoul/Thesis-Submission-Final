@@ -111,21 +111,35 @@ def moving_average_open(train, window=7, store_id=None, save=True):
         }
     )
 
+    valid = result.dropna(subset=[f"Error_{window}"])
+
+    stats = (
+        valid.groupby("Store")
+        .agg(
+            N=(f"Error_{window}", "size"),
+            MAE=(f"AbsError_{window}", "mean"),
+            MSE=(f"SqError_{window}", "mean"),
+            MAPE=(f"APE_{window} (%)", "mean"),
+        )
+        .reset_index()
+    )
+    stats["RMSE"] = np.sqrt(stats["MSE"])
+    stats = stats[["Store", "N", "MAE", "MSE", "RMSE", "MAPE"]]
+
     if save:
         store_str = f"_store{store_id}" if store_id is not None else ""
         path = os.path.join(
             OUTPUT_DIR,
-            f"moving_average_open{window}{store_str}.csv"
+            f"moving_average_open{window}{store_str}.xlsx"
         )
-        result.to_csv(
-            path,
-            index=False,
-            float_format="%.3f",
-            sep=";"
-        )
-        print(f"Saved moving_average_open{window}{store_str}.csv")
 
-    return result
+        with pd.ExcelWriter(path) as writer:
+            result.to_excel(writer, sheet_name="Daily", index=False)
+            stats.to_excel(writer, sheet_name="Stats", index=False)
+
+        print(f"Saved moving_average_open{window}{store_str}.xlsx")
+
+    return result, stats
 
 #python -c "from rossmann.forecasting import ses_forecast_store_stats; ses_forecast_store_stats(alpha=0.3, store_id=1)"
 def ses_forecast_store_stats(alpha=0.3, store_id=None):
