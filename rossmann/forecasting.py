@@ -87,27 +87,27 @@ def moving_average_open(train, window=7, store_id=None, save=True):
 
     raw_ma = (
         df.groupby("Store")["Sales"]
-        .transform(lambda x: x.rolling(window=window).mean().shift(1))
+        .transform(
+            lambda x: x.rolling(window=window).mean().shift(1)
+        )
     )
 
-    scaled_sales = sales / 1000
-    scaled_ma = raw_ma / 1000
-
-    error = scaled_sales - scaled_ma
+    error = sales - raw_ma
     abs_error = error.abs()
     sq_error = error ** 2
-    ape = abs_error / scaled_sales * 100
+
+    ape = (abs_error / sales) * 100
 
     result = pd.DataFrame(
         {
             "Store": df["Store"],
             "Date": df["Date"],
-            "Sales": scaled_sales.round(3),
-            f"Moving_Average,n={window}": scaled_ma.round(3),
-            f"Error_{window}": error.round(3),
-            f"AbsError_{window}": abs_error.round(3),
-            f"SqError_{window}": sq_error.round(3),
-            f"APE_{window} (%)": ape.round(3),
+            "Sales": sales,
+            f"Moving_Average,n={window}": raw_ma,
+            f"Error_{window}": error,
+            f"AbsError_{window}": abs_error,
+            f"SqError_{window}": sq_error,
+            f"APE_{window} (%)": ape,
         }
     )
 
@@ -123,6 +123,7 @@ def moving_average_open(train, window=7, store_id=None, save=True):
         )
         .reset_index()
     )
+
     stats["RMSE"] = np.sqrt(stats["MSE"])
     stats = stats[["Store", "N", "MAE", "MSE", "RMSE", "MAPE"]]
 
@@ -133,9 +134,63 @@ def moving_average_open(train, window=7, store_id=None, save=True):
             f"moving_average_open{window}{store_str}.xlsx"
         )
 
-        with pd.ExcelWriter(path) as writer:
+        with pd.ExcelWriter(path, engine="openpyxl") as writer:
             result.to_excel(writer, sheet_name="Daily", index=False)
             stats.to_excel(writer, sheet_name="Stats", index=False)
+
+            ws = writer.sheets["Daily"]
+
+            date_col = result.columns.get_loc("Date") + 1
+            for row in range(2, len(result) + 2):
+                ws.cell(
+                    row=row, column=date_col
+                ).number_format = "d/m/yyyy"
+
+            integer_columns = [
+                "Sales",
+                f"Moving_Average,n={window}",
+                f"Error_{window}",
+                f"AbsError_{window}",
+                f"SqError_{window}",
+            ]
+
+            for col_name in integer_columns:
+                col = result.columns.get_loc(col_name) + 1
+                for row in range(2, len(result) + 2):
+                    ws.cell(
+                        row=row, column=col
+                    ).number_format = "#,##0"
+
+            ape_col = result.columns.get_loc(
+                f"APE_{window} (%)"
+            ) + 1
+
+            for row in range(2, len(result) + 2):
+                ws.cell(
+                    row=row, column=ape_col
+                ).number_format = '0.00"%"'
+
+            ws_stats = writer.sheets["Stats"]
+
+            for col_name in ["MAE", "RMSE"]:
+                col = stats.columns.get_loc(col_name) + 1
+                for row in range(2, len(stats) + 2):
+                    ws_stats.cell(
+                        row=row, column=col
+                    ).number_format = "#,##0.00"
+
+            for col_name in ["MSE"]:
+                col = stats.columns.get_loc(col_name) + 1
+                for row in range(2, len(stats) + 2):
+                    ws_stats.cell(
+                        row=row, column=col
+                    ).number_format = "#,##0.00"
+
+            mape_col = stats.columns.get_loc("MAPE") + 1
+            for row in range(2, len(stats) + 2):
+                ws_stats.cell(
+                    row=row, column=mape_col
+                ).number_format = '0.00"%"'
 
         print(f"Saved moving_average_open{window}{store_str}.xlsx")
 
@@ -215,6 +270,132 @@ def ses_forecast_store_stats(alpha=0.3, store_id=None):
 
     return ses_all_daily, ses_all_stats
 
+ALPHA_GRID = np.round(np.arange(0.05, 1.00, 0.05), 2)
+
+
+def ses_one_step(y, alpha):
+    f = np.full(len(y), np.nan)
+    level = y[0]
+    for t in range(1, len(y)):
+        f[t] = level
+        level = alpha * y[t] + (1 - alpha) * level
+    return f
+
+
+def select_alpha(sales, grid=ALPHA_GRID):
+    rows = []
+    for a in grid:
+        f = ses_one_step(sales, a)
+        m = ~np.isnan(f)
+        rows.append((a, np.mean((sales[m] - f[m]) ** 2)))
+    tbl = pd.DataFrame(rows, columns=["alpha", "MSE"])
+    return tbl.loc[tbl["MSE"].idxmin(), "alpha"], tbl
+
+
+def ses_forecast_store_stats_alpha_validation(store_id=None):
+    train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
+
+    if store_id is not None:
+        output_excel = os.path.join(
+            OUTPUT_DIR, f"ses_forecast_alpha_validation_store{store_id}_stats.xlsx"
+        )
+    else:
+        output_excel = os.path.join(
+            OUTPUT_DIR, "ses_forecast_alpha_validation_all_stores_stats.xlsx"
+        )
+
+    results_daily = []
+    results_stats = []
+    results_alpha = []
+    alpha_grid_store = {}
+
+    stores = [store_id] if store_id is not None else train["Store"].unique()
+
+    for s_id in stores:
+        store_data = train[(train["Store"] == s_id) & (train["Open"] == 1)]
+        store_data = store_data[store_data["Sales"] > 0].copy()
+        store_data["Date"] = pd.to_datetime(store_data["Date"])
+        store_data = store_data.sort_values("Date")
+
+        if store_data.empty:
+            continue
+
+        dates = store_data["Date"].reset_index(drop=True)
+        sales = store_data["Sales"].to_numpy(float)
+
+        alpha, tbl = select_alpha(sales)
+        results_alpha.append({"Store": s_id, "alpha": alpha})
+        alpha_grid_store[s_id] = tbl
+
+        ses_values = ses_one_step(sales, alpha)
+
+        valid = ~np.isnan(ses_values)
+        y_t = sales[valid]
+        f_t = ses_values[valid]
+        error = y_t - f_t
+        abs_error = np.abs(error)
+        sq_error = error ** 2
+
+        df_daily = pd.DataFrame(
+            {
+                "Store": s_id,
+                "Date": dates[valid].values,
+                "Sales": y_t,
+                "SES_Sales": f_t,
+                "Error": error,
+                "AbsError": abs_error,
+                "SqError": sq_error,
+            }
+        )
+
+        mae = np.mean(abs_error)
+        mse = np.mean(sq_error)
+        rmse = np.sqrt(mse)
+        mape = np.mean(abs_error / y_t) * 100
+
+        df_stats = pd.DataFrame(
+            {
+                "Store": [s_id],
+                "alpha": [alpha],
+                "N": [len(y_t)],
+                "MAE": [mae],
+                "MSE": [mse],
+                "RMSE": [rmse],
+                "MAPE": [mape],
+            }
+        )
+
+        results_daily.append(df_daily)
+        results_stats.append(df_stats)
+
+    ses_all_daily = pd.concat(results_daily, ignore_index=True)
+    ses_all_stats = pd.concat(results_stats, ignore_index=True)
+    alphas = pd.DataFrame(results_alpha)
+
+    e = ses_all_daily["Error"]
+    pooled = pd.DataFrame(
+        {
+            "N": [len(e)],
+            "MAE": [e.abs().mean()],
+            "MSE": [(e ** 2).mean()],
+            "RMSE": [np.sqrt((e ** 2).mean())],
+            "MAPE": [(e.abs() / ses_all_daily["Sales"]).mean() * 100],
+        }
+    )
+
+    with pd.ExcelWriter(output_excel) as writer:
+        ses_all_daily.to_excel(writer, sheet_name="Daily", index=False)
+        ses_all_stats.to_excel(writer, sheet_name="Stats", index=False)
+        pooled.to_excel(writer, sheet_name="Pooled", index=False)
+        alphas.to_excel(writer, sheet_name="Alpha_selected", index=False)
+        if store_id is not None:
+            alpha_grid_store[store_id].to_excel(
+                writer, sheet_name="Alpha_grid", index=False
+            )
+
+    print(f"Saved: {output_excel}")
+
+    return ses_all_daily, ses_all_stats
 
 def _fit_sarimax_forecast(ts, forecast_days):
     model = SARIMAX(

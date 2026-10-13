@@ -44,6 +44,11 @@ def _(store_id=1, **_kw):
         store_id=store_id
     )
 
+@step("ses_forecast_store_stats_alpha_validation")
+def _(train=None, store_id=1, **kwargs):
+    return forecasting.ses_forecast_store_stats_alpha_validation(
+        store_id=store_id
+    )
 
 @step("sales_by_day")
 def _(train, **_kw):
