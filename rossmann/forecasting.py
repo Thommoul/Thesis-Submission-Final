@@ -8,7 +8,7 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from .config import DATA_DIR, OUTPUT_DIR
 
 
-def moving_average(train, window=7, store_id=None, save=True):
+def moving_average(train, window=None, store_id=None, save=True):
     df = train.copy()
 
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
@@ -69,13 +69,13 @@ def moving_average(train, window=7, store_id=None, save=True):
 
     return result
 
+# for specific python -c "import pandas as pd, os; from rossmann.config import DATA_DIR; from rossmann.forecasting import moving_average_open; train = pd.read_csv(os.path.join(DATA_DIR, 'train.csv'), low_memory=False); moving_average_open(train, window=4, store_id=2)"
+#for all stores python -c "import pandas as pd, os; from rossmann.config import DATA_DIR; from rossmann.forecasting import moving_average_open; train = pd.read_csv(os.path.join(DATA_DIR, 'train.csv'), low_memory=False); moving_average_open(train, window=4, store_id=None)"
 def moving_average_open(train, window=7, store_id=None, save=True):
     df = train.copy()
 
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
-
     df = df[(df["Open"] == 1) & (df["Sales"] > 0)]
-
     df = df.sort_values(["Store", "Date"])
 
     if store_id is not None:
@@ -95,7 +95,6 @@ def moving_average_open(train, window=7, store_id=None, save=True):
     error = sales - raw_ma
     abs_error = error.abs()
     sq_error = error ** 2
-
     ape = (abs_error / sales) * 100
 
     result = pd.DataFrame(

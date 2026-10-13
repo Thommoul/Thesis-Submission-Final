@@ -22,7 +22,7 @@ def step(name):
 
 
 @step("moving_average")
-def _(train, store_id=1, window=7, **_kw):
+def _(train, store_id=8, window=5, **_kw):
     forecasting.moving_average(
         train,
         window=window,
@@ -30,7 +30,7 @@ def _(train, store_id=1, window=7, **_kw):
     )
 
 @step("moving_average_open")
-def _(train, store_id=1, window=7, **_kw):
+def _(train, store_id=5, window=8, **_kw):
     forecasting.moving_average_open(
         train,
         window=window,
