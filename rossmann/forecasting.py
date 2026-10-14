@@ -290,7 +290,7 @@ def select_alpha(sales, grid=ALPHA_GRID):
     tbl = pd.DataFrame(rows, columns=["alpha", "MSE"])
     return tbl.loc[tbl["MSE"].idxmin(), "alpha"], tbl
 
-
+#python -c "from rossmann.forecasting import ses_forecast_store_stats_alpha_validation; ses_forecast_store_stats_alpha_validation(store_id=1)"
 def ses_forecast_store_stats_alpha_validation(store_id=None):
     train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
 
