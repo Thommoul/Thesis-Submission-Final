@@ -21,14 +21,6 @@ def step(name):
     return register
 
 
-@step("moving_average")
-def _(train, store_id=8, window=5, **_kw):
-    forecasting.moving_average(
-        train,
-        window=window,
-        store_id=store_id
-    )
-
 @step("moving_average_open")
 def _(train, store_id=5, window=8, **_kw):
     forecasting.moving_average_open(
@@ -43,23 +35,10 @@ def _(store_id=1, **_kw):
         alpha=0.3,
         store_id=store_id
     )
-
 @step("ses_forecast_store_stats_alpha_validation")
 def _(train=None, store_id=1, **kwargs):
     return forecasting.ses_forecast_store_stats_alpha_validation(
         store_id=store_id
-    )
-
-@step("sales_by_day")
-def _(train, **_kw):
-    analytics.sales_by_day_for_year(train, 2015)
-
-
-@step("sarimax")
-def _(**_kw):
-    forecasting.forecast_sarimax(
-        year=2015,
-        forecast_days=30
     )
 
 
