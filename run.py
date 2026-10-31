@@ -52,16 +52,6 @@ def _(store_id=1, **_kw):
     ml.train_xgboost_model(store_id)
 
 
-@step("xgboost_single_store")
-def _(store_id=1, **_kw):
-    ml.run_store_full_analysis(store_id)
-
-
-@step("xgboost_all_stores")
-def _(**_kw):
-    ml.xgboost_all_stores_model_detailed()
-
-
 @step("backtest")
 def _(store_id=1, **_kw):
     ml.backtest_last_30_days(store_id)

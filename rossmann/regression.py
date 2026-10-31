@@ -236,7 +236,6 @@ def analyze_sales_factors():
 
     X = data.drop(columns=["Sales"])
 
-    # Προσθήκη σταθερού όρου
     X = sm.add_constant(X)
 
 

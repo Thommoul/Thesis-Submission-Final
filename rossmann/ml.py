@@ -63,116 +63,99 @@ def run_store_full_analysis(store_id):
     return model, results, rmse
 
 
+
 def train_xgboost_model(store_id):
-    """Train and persist an XGBoost model for a single store; also used by backtest_last_30_days."""
     df = load_store_history(store_id)
 
     if len(df) < 50:
         raise ValueError("Not enough data for analysis")
 
-    df, X_train, X_test, y_train, y_test, split = _train_test_split_by_time(df, FEATURES)
+    df, X_train, X_test, y_train, y_test, split = (
+        _train_test_split_by_time(df, FEATURES)
+    )
 
     model = _make_xgb_regressor(
-        n_estimators=500, learning_rate=0.05, max_depth=5,
-        subsample=0.8, colsample_bytree=0.8,
+        n_estimators=500,
+        learning_rate=0.05,
+        max_depth=5,
+        subsample=0.8,
+        colsample_bytree=0.8,
     )
+
     model.fit(X_train, y_train)
 
     joblib.dump((model, None, FEATURES), model_path(store_id))
 
     y_pred = np.expm1(model.predict(X_test))
-    y_true = np.expm1(y_test)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    y_true = np.expm1(np.asarray(y_test).reshape(-1))
+
+    if len(y_true) != len(y_pred):
+        raise ValueError("Actual and predicted values have different lengths")
+
+    mae = mean_absolute_error(y_true, y_pred)
+    mse = mean_squared_error(y_true, y_pred)
+    rmse = np.sqrt(mse)
+
+    if np.any(y_true == 0):
+        mape = np.nan
+        print("Warning: MAPE cannot be calculated because test set contains zero sales.")
+    else:
+        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+
+    df_test = df.iloc[split:].copy()
 
     results = pd.DataFrame({
-        "Date": df.iloc[split:]["Date"].values,
-        "Actual_Sales": y_true.values,
+        "Date": df_test["Date"].values,
+        "Actual_Sales": y_true,
         "Predicted_Sales": y_pred,
-        "Error": y_true.values - y_pred,
+        "Error": y_true - y_pred,
+        "Absolute_Error": np.abs(y_true - y_pred),
+        "Squared_Error": (y_true - y_pred) ** 2,
     })
 
-    full_path = os.path.join(OUTPUT_DIR, f"xgboost_store_{store_id}_results.xlsx")
-    results.to_excel(full_path, index=False)
+    metrics = pd.DataFrame([{
+    "Store": store_id,
+    "N": len(y_true),
+    "MAE": mae,
+    "MSE": mse,
+    "RMSE": rmse,
+    "MAPE (%)": mape}])
+
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    full_path = os.path.join(
+        OUTPUT_DIR,
+        f"xgboost_store_{store_id}_results.xlsx"
+    )
+
+    with pd.ExcelWriter(full_path, engine="openpyxl") as writer:
+        results.to_excel(
+            writer,
+            sheet_name="Predictions",
+            index=False
+        )
+
+        metrics.to_excel(
+            writer,
+            sheet_name="Evaluation_Metrics",
+            index=False
+        )
+
 
     print("\n===== XGBOOST MODEL =====")
     print("Store:", store_id)
-    print("RMSE:", rmse)
-    print("Saved:", full_path)
+    print("Test observations (N):", len(y_true))
+    print("MAE:", round(mae, 4))
+    print("MSE:", round(mse, 4))
+    print("RMSE:", round(rmse, 4))
+    print("MAPE (%):", round(mape, 4) if not np.isnan(mape) else "N/A")
 
-    return model, results, rmse
-
-
-def xgboost_all_stores_model_detailed():
-    train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), parse_dates=["Date"])
-    store = pd.read_csv(os.path.join(DATA_DIR, "store.csv"))
-
-    df = train.merge(store, on="Store", how="left")
-    df = df[df["Open"] == 1].copy()
-    df = df.sort_values(["Store", "Date"])
-    df = add_calendar_features(df)
-    df["Store"] = df["Store"].astype(int)
-
-    features = ["Store"] + FEATURES
-    X = df[features]
-    y = np.log1p(df["Sales"])
-
-    split = int(len(df) * 0.8)
-    X_train, X_test = X.iloc[:split], X.iloc[split:]
-    y_train, y_test = y.iloc[:split], y.iloc[split:]
-    test_meta = df.iloc[split:][["Store", "Date"]].copy()
-
-    model = _make_xgb_regressor(
-        n_estimators=600, learning_rate=0.05, max_depth=6,
-        subsample=0.8, colsample_bytree=0.8,
-    )
-    model.fit(X_train, y_train)
-
-    preds = np.expm1(model.predict(X_test))
-    true = np.expm1(y_test)
-
-    results = pd.DataFrame({
-        "Store": test_meta["Store"].values,
-        "Date": test_meta["Date"].values,
-        "Actual_Sales": true.values,
-        "Predicted_Sales": preds,
-        "Error": true.values - preds,
-        "Abs_Error": np.abs(true.values - preds),
-    })
-
-    store_summary = results.groupby("Store").agg(
-        MAE=("Abs_Error", "mean"),
-        RMSE=("Error", lambda x: np.sqrt(np.mean(x ** 2))),
-        Avg_Actual=("Actual_Sales", "mean"),
-        Avg_Predicted=("Predicted_Sales", "mean"),
-    ).reset_index()
-
-    best_store = store_summary.sort_values("MAE").head(5)
-    worst_store = store_summary.sort_values("MAE", ascending=False).head(5)
-
-    output_file = os.path.join(OUTPUT_DIR, "xgboost_all_stores_detailed.xlsx")
-    with pd.ExcelWriter(output_file) as writer:
-        results.to_excel(writer, sheet_name="Global_Predictions", index=False)
-        store_summary.to_excel(writer, sheet_name="Store_Summary", index=False)
-        best_store.to_excel(writer, sheet_name="Best_Stores", index=False)
-        worst_store.to_excel(writer, sheet_name="Worst_Stores", index=False)
-
-    rmse_global = np.sqrt(mean_squared_error(true, preds))
-
-    print("\n===== XGBOOST GLOBAL DSS MODEL (DETAILED) =====")
-    print("Saved:", output_file)
-    print("Global RMSE:", round(rmse_global, 2))
-    print("\nBest performing stores (lowest MAE):")
-    print(best_store)
-    print("\nWorst performing stores (highest MAE):")
-    print(worst_store)
-
-    return model, results, store_summary
+    return model, results, metrics
 
 
 def backtest_last_30_days(store_id):
     path = model_path(store_id)
     if not os.path.exists(path):
-        # Fall back to the legacy single-model file, which was pre-trained for store 1.
         if store_id == 1 and os.path.exists(MODEL_PATH):
             path = MODEL_PATH
         else:

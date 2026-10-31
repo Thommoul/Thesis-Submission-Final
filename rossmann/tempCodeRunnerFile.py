@@ -15,7 +15,6 @@ def sales_by_day_for_year(train, year, plot=True):
         print(f"No data found for year {year}.")
         return None
  
-    # Only open store-days are comparable for daily demand behavior
     open_days = train_year[train_year["Open"] == 1]
  
     if open_days.empty:
@@ -24,7 +23,6 @@ def sales_by_day_for_year(train, year, plot=True):
  
     days = list(DAY_LABELS.keys())
  
-    # Main measure: mean / median Sales and N per day of week (Open = 1)
     summary = (
         open_days.groupby("DayOfWeek")["Sales"]
         .agg(N="count", Mean_Sales="mean", Median_Sales="median")
@@ -32,7 +30,6 @@ def sales_by_day_for_year(train, year, plot=True):
     )
     summary["N"] = summary["N"].fillna(0).astype(int)
  
-    # Supplementary measure: total sales per day of week
     summary["Total_Sales"] = (
         train_year.groupby("DayOfWeek")["Sales"].sum().reindex(days).fillna(0)
     )
@@ -57,7 +54,6 @@ def sales_by_day_for_year(train, year, plot=True):
     if plot:
         fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
  
-        # Left: comparable measure (mean per open store-day, median as markers)
         ax = axes[0]
         ax.bar(summary["DayOfWeek"], summary["Mean_Sales"].fillna(0), label="Mean")
         ax.scatter(
@@ -77,7 +73,6 @@ def sales_by_day_for_year(train, year, plot=True):
         ax.set_xticklabels([DAY_LABELS[d] for d in days])
         ax.legend()
  
-        # Right: totals (supplementary)
         ax = axes[1]
         ax.bar(summary["DayOfWeek"], summary["Total_Sales"], color="grey")
         ax.set_title(f"Total Sales by Day of Week ({year}) - supplementary")
