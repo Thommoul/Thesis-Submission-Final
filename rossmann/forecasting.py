@@ -291,7 +291,7 @@ def select_alpha(sales, grid=ALPHA_GRID):
     return tbl.loc[tbl["MSE"].idxmin(), "alpha"], tbl
 
 #python -c "from rossmann.forecasting import ses_forecast_store_stats_alpha_validation; ses_forecast_store_stats_alpha_validation(store_id=1)"
-def ses_forecast_store_stats_alpha_validation(store_id=None):
+def ses_forecast_store_stats_alpha_validation(store_id=None, test_fraction=0.2):
     train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
 
     if store_id is not None:
@@ -322,13 +322,14 @@ def ses_forecast_store_stats_alpha_validation(store_id=None):
         dates = store_data["Date"].reset_index(drop=True)
         sales = store_data["Sales"].to_numpy(float)
 
-        alpha, tbl = select_alpha(sales)
+        split = int(len(sales) * (1 - test_fraction))
+        alpha, tbl = select_alpha(sales[:split])
         results_alpha.append({"Store": s_id, "alpha": alpha})
         alpha_grid_store[s_id] = tbl
 
         ses_values = ses_one_step(sales, alpha)
 
-        valid = ~np.isnan(ses_values)
+        valid = (~np.isnan(ses_values)) & (np.arange(len(sales)) >= split)
         y_t = sales[valid]
         f_t = ses_values[valid]
         error = y_t - f_t
@@ -395,15 +396,15 @@ def ses_forecast_store_stats_alpha_validation(store_id=None):
         pooled.to_excel(writer, sheet_name="Pooled", index=False)
         alphas.to_excel(writer, sheet_name="Alpha_selected", index=False)
 
-    if store_id is not None:
-        alpha_grid_store[store_id].to_excel(
-            writer, sheet_name="Alpha_grid", index=False
-        )
+        if store_id is not None:
+            alpha_grid_store[store_id].to_excel(
+                writer, sheet_name="Alpha_grid", index=False
+            )
 
-    ws = writer.sheets["Daily"]
+        ws = writer.sheets["Daily"]
 
-    for cell in ws["B"][1:]:
-        cell.number_format = "d/m/yyyy"
+        for cell in ws["B"][1:]:
+            cell.number_format = "d/m/yyyy"
 
     print(f"Saved: {output_excel}")
 
