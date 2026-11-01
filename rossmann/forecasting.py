@@ -338,7 +338,8 @@ def ses_forecast_store_stats_alpha_validation(store_id=None):
         df_daily = pd.DataFrame(
             {
                 "Store": s_id,
-                "Date": dates[valid].values,
+                "Date":[f"{d.day}/{d.month}/{d.year}"
+                        for d in dates[valid]],
                 "Sales": y_t,
                 "SES_Sales": f_t,
                 "Error": error,
@@ -382,15 +383,27 @@ def ses_forecast_store_stats_alpha_validation(store_id=None):
         }
     )
 
-    with pd.ExcelWriter(output_excel) as writer:
+    with pd.ExcelWriter(
+    output_excel,
+    engine="openpyxl",
+    date_format="d/m/yyyy",
+    datetime_format="d/m/yyyy"
+    ) as writer:
+
         ses_all_daily.to_excel(writer, sheet_name="Daily", index=False)
         ses_all_stats.to_excel(writer, sheet_name="Stats", index=False)
         pooled.to_excel(writer, sheet_name="Pooled", index=False)
         alphas.to_excel(writer, sheet_name="Alpha_selected", index=False)
-        if store_id is not None:
-            alpha_grid_store[store_id].to_excel(
-                writer, sheet_name="Alpha_grid", index=False
-            )
+
+    if store_id is not None:
+        alpha_grid_store[store_id].to_excel(
+            writer, sheet_name="Alpha_grid", index=False
+        )
+
+    ws = writer.sheets["Daily"]
+
+    for cell in ws["B"][1:]:
+        cell.number_format = "d/m/yyyy"
 
     print(f"Saved: {output_excel}")
 

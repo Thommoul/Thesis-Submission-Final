@@ -32,7 +32,7 @@ def _(train, store_id=5, window=8, **_kw):
 @step("ses")
 def _(store_id=1, **_kw):
     forecasting.ses_forecast_store_stats(
-        alpha=0.3,
+        alpha=0.8,
         store_id=store_id
     )
 @step("ses_forecast_store_stats_alpha_validation")
