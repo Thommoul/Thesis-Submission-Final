@@ -195,6 +195,142 @@ def moving_average_open(train, window=7, store_id=None, save=True):
 
     return result, stats
 
+
+def moving_average_open_traction(train,window=7,store_id=None,save=True,test_fraction=0.2):
+
+    df = train.copy()
+
+    df = df[(df["Open"] == 1) & (df["Sales"] > 0)].copy()
+
+    if store_id is not None:
+        df = df[df["Store"] == store_id].copy()
+
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.sort_values(["Store", "Date"]).reset_index(drop=True)
+
+    if df.empty:
+        print("Δεν βρέθηκαν διαθέσιμα δεδομένα.")
+        return None
+
+    if window < 1:
+        raise ValueError("Το window πρέπει να είναι >= 1.")
+
+    if test_fraction is not None:
+        if not 0 < test_fraction < 1:
+            raise ValueError("Το test_fraction πρέπει να είναι μεταξύ 0 και 1.")
+
+
+    ma_col = f"Moving_Average,n={window}"
+
+    df[ma_col] = (
+        df.groupby("Store")["Sales"]
+        .transform(
+            lambda x: x.shift(1).rolling(
+                window=window,
+                min_periods=window
+            ).mean()
+        )
+    )
+
+    df[f"Error_{window}"] = df["Sales"] - df[ma_col]
+    df[f"AbsError_{window}"] = df[f"Error_{window}"].abs()
+    df[f"SqError_{window}"] = df[f"Error_{window}"] ** 2
+
+    df[f"APE_{window} (%)"] = (
+        df[f"AbsError_{window}"] / df["Sales"] * 100
+    )
+
+    if test_fraction is not None:
+        position = df.groupby("Store").cumcount()
+        n = df.groupby("Store")["Sales"].transform("size")
+        split = (n * (1 - test_fraction)).astype(int)
+
+        df["Dataset"] = np.where(
+            position < split,
+            "Train",
+            "Test"
+        )
+
+        evaluation_df = df[
+            (df["Dataset"] == "Test") &
+            (df[ma_col].notna())
+        ].copy()
+    else:
+        df["Dataset"] = "Full"
+        evaluation_df = df[df[ma_col].notna()].copy()
+
+    stats = (
+        evaluation_df.groupby("Store")
+        .agg(
+            N=("Sales", "count"),
+            MAE=(f"AbsError_{window}", "mean"),
+            MSE=(f"SqError_{window}", "mean"),
+            MAPE=(f"APE_{window} (%)", "mean")
+        )
+        .reset_index()
+    )
+
+    if not stats.empty:
+        stats["RMSE"] = np.sqrt(stats["MSE"])
+        stats = stats[
+            ["Store", "N", "MAE", "MSE", "RMSE", "MAPE"]
+        ]
+
+    if save:
+        if store_id is not None:
+            name = f"moving_average_open_traction_store{store_id}"
+        else:
+            name = "moving_average_open_traction_all_stores"
+
+        if test_fraction is not None:
+            name += f"_test_{int(test_fraction * 100)}pct"
+        else:
+            name += "_full"
+
+        output_excel = os.path.join(
+            OUTPUT_DIR,
+            name + ".xlsx"
+        )
+
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+        with pd.ExcelWriter(
+            output_excel,
+            engine="openpyxl"
+        ) as writer:
+
+            df.to_excel(
+                writer,
+                sheet_name="Daily",
+                index=False
+            )
+
+            stats.to_excel(
+                writer,
+                sheet_name="Stats",
+                index=False
+            )
+
+            ws = writer.sheets["Daily"]
+
+            date_col = df.columns.get_loc("Date") + 1
+
+            for row in ws.iter_rows(
+                min_row=2,
+                min_col=date_col,
+                max_col=date_col
+            ):
+                for cell in row:
+                    cell.number_format = "d/m/yyyy"
+
+        print(f"Saved: {output_excel}")
+
+    print("\nMoving Average Evaluation:")
+    print(stats.to_string(index=False))
+
+    return df, stats
+
+
 #python -c "from rossmann.forecasting import ses_forecast_store_stats; ses_forecast_store_stats(alpha=0.3, store_id=1)"
 def ses_forecast_store_stats(alpha=0.3, store_id=None):
     train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
@@ -291,12 +427,131 @@ def select_alpha(sales, grid=ALPHA_GRID):
     return tbl.loc[tbl["MSE"].idxmin(), "alpha"], tbl
 
 #python -c "from rossmann.forecasting import ses_forecast_store_stats_alpha_validation; ses_forecast_store_stats_alpha_validation(store_id=1)"
-def ses_forecast_store_stats_alpha_validation(store_id=None, test_fraction=0.2):
+def ses_forecast_store_stats_alpha_validation(store_id=None):
     train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
 
     if store_id is not None:
         output_excel = os.path.join(
             OUTPUT_DIR, f"ses_forecast_alpha_validation_store{store_id}_stats.xlsx"
+        )
+    else:
+        output_excel = os.path.join(
+            OUTPUT_DIR, "ses_forecast_alpha_validation_all_stores_stats.xlsx"
+        )
+
+    results_daily = []
+    results_stats = []
+    results_alpha = []
+    alpha_grid_store = {}
+
+    stores = [store_id] if store_id is not None else train["Store"].unique()
+
+    for s_id in stores:
+        store_data = train[(train["Store"] == s_id) & (train["Open"] == 1)]
+        store_data = store_data[store_data["Sales"] > 0].copy()
+        store_data["Date"] = pd.to_datetime(store_data["Date"])
+        store_data = store_data.sort_values("Date")
+
+        if store_data.empty:
+            continue
+
+        dates = store_data["Date"].reset_index(drop=True)
+        sales = store_data["Sales"].to_numpy(float)
+
+        alpha, tbl = select_alpha(sales)
+        results_alpha.append({"Store": s_id, "alpha": alpha})
+        alpha_grid_store[s_id] = tbl
+
+        ses_values = ses_one_step(sales, alpha)
+
+        valid = ~np.isnan(ses_values)
+        y_t = sales[valid]
+        f_t = ses_values[valid]
+        error = y_t - f_t
+        abs_error = np.abs(error)
+        sq_error = error ** 2
+
+        df_daily = pd.DataFrame(
+            {
+                "Store": s_id,
+                "Date":[f"{d.day}/{d.month}/{d.year}"
+                        for d in dates[valid]],
+                "Sales": y_t,
+                "SES_Sales": f_t,
+                "Error": error,
+                "AbsError": abs_error,
+                "SqError": sq_error,
+            }
+        )
+
+        mae = np.mean(abs_error)
+        mse = np.mean(sq_error)
+        rmse = np.sqrt(mse)
+        mape = np.mean(abs_error / y_t) * 100
+
+        df_stats = pd.DataFrame(
+            {
+                "Store": [s_id],
+                "alpha": [alpha],
+                "N": [len(y_t)],
+                "MAE": [mae],
+                "MSE": [mse],
+                "RMSE": [rmse],
+                "MAPE": [mape],
+            }
+        )
+
+        results_daily.append(df_daily)
+        results_stats.append(df_stats)
+
+    ses_all_daily = pd.concat(results_daily, ignore_index=True)
+    ses_all_stats = pd.concat(results_stats, ignore_index=True)
+    alphas = pd.DataFrame(results_alpha)
+
+    e = ses_all_daily["Error"]
+    pooled = pd.DataFrame(
+        {
+            "N": [len(e)],
+            "MAE": [e.abs().mean()],
+            "MSE": [(e ** 2).mean()],
+            "RMSE": [np.sqrt((e ** 2).mean())],
+            "MAPE": [(e.abs() / ses_all_daily["Sales"]).mean() * 100],
+        }
+    )
+
+    with pd.ExcelWriter(
+    output_excel,
+    engine="openpyxl",
+    date_format="d/m/yyyy",
+    datetime_format="d/m/yyyy"
+    ) as writer:
+
+        ses_all_daily.to_excel(writer, sheet_name="Daily", index=False)
+        ses_all_stats.to_excel(writer, sheet_name="Stats", index=False)
+        pooled.to_excel(writer, sheet_name="Pooled", index=False)
+        alphas.to_excel(writer, sheet_name="Alpha_selected", index=False)
+
+    if store_id is not None:
+        alpha_grid_store[store_id].to_excel(
+            writer, sheet_name="Alpha_grid", index=False
+        )
+
+    ws = writer.sheets["Daily"]
+
+    for cell in ws["B"][1:]:
+        cell.number_format = "d/m/yyyy"
+
+    print(f"Saved: {output_excel}")
+
+    return ses_all_daily, ses_all_stats
+
+#python -c "from rossmann.forecasting import ses_forecast_store_stats_alpha_validation_traction; ses_forecast_store_stats_alpha_validation_traction(store_id=1)"
+def ses_forecast_store_stats_alpha_validation_traction(store_id=None, test_fraction=0.2):
+    train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
+
+    if store_id is not None:
+        output_excel = os.path.join(
+            OUTPUT_DIR, f"ses_forecast_alpha_validation_traction_store{store_id}_stats.xlsx"
         )
     else:
         output_excel = os.path.join(
