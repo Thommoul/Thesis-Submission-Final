@@ -20,13 +20,45 @@ def step(name):
         return fn
     return register
 
+@step("plot_store_1_sales")
+def _(**_kw):
+    plots.plot_store_1_sales()
 
-@step("moving_average_open")
-def _(train, store_id=5, window=8, **_kw):
+@step("sales_by_day_report")
+def _(**_kw):
+    analytics.print_sales_by_day_report()
+
+@step("sales_by_day_for_full_years")
+def _(**_kw):
+    result = analytics.sales_by_day_for_full_years()
+    print(result.to_string())
+
+@step("moving_average_open_4")
+def _(train, **_kw):
     forecasting.moving_average_open(
         train,
-        window=window,
-        store_id=store_id
+        window=4,
+        store_id=None,
+        save=True
+    )
+
+@step("moving_average_open_7")
+def _(train, **_kw):
+    forecasting.moving_average_open(
+        train,
+        window=7,
+        store_id=1,
+        save=True
+    )
+
+@step("moving_average_open_traction")
+def _(train, **_kw):
+    forecasting.moving_average_open_traction(
+        train,
+        window=7,
+        store_id=1,
+        save=True,
+        test_fraction=0.2
     )
 
 @step("ses")
@@ -35,13 +67,20 @@ def _(store_id=1, **_kw):
         alpha=0.8,
         store_id=store_id
     )
+
 @step("ses_forecast_store_stats_alpha_validation")
 def _(train=None, store_id=1, **kwargs):
     return forecasting.ses_forecast_store_stats_alpha_validation(
         store_id=store_id
     )
 
-
+@step("ses_alpha_validation_traction")
+def _(train, **_kw):
+    forecasting.ses_forecast_store_stats_alpha_validation_traction(
+        store_id=1,
+        test_fraction=0.2
+    )
+    
 @step("ols_regression")
 def _(**_kw):
     regression.run_rossmann_regression()

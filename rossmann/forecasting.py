@@ -71,7 +71,7 @@ def moving_average(train, window=None, store_id=None, save=True):
 
 # for specific python -c "import pandas as pd, os; from rossmann.config import DATA_DIR; from rossmann.forecasting import moving_average_open; train = pd.read_csv(os.path.join(DATA_DIR, 'train.csv'), low_memory=False); moving_average_open(train, window=4, store_id=2)"
 #for all stores python -c "import pandas as pd, os; from rossmann.config import DATA_DIR; from rossmann.forecasting import moving_average_open; train = pd.read_csv(os.path.join(DATA_DIR, 'train.csv'), low_memory=False); moving_average_open(train, window=4, store_id=None)"
-def moving_average_open(train, window=7, store_id=None, save=True):
+def moving_average_open(train, window=4, store_id=None, save=True):
     df = train.copy()
 
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)

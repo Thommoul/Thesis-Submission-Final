@@ -3,10 +3,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from .config import DATA_DIR, OUTPUT_DIR
+from pathlib import Path
 
 DAY_LABELS = {1: "Δευτέρα", 2: "Τρίτη", 3: "Τετάρτη", 4: "Πέμπτη", 5: "Παρασκευή", 6: "Σάββατο", 7: "Κυριακή"}
 
-#Σχόλιο 4.3
+#Σχόλιο 4.3? ή το από κάτω;
 # python -c "from rossmann.analytics import sales_by_day_for_year; sales_by_day_for_year(2014)"
 def sales_by_day_for_year(year, plot=True):
 
@@ -87,7 +88,6 @@ def sales_by_day_for_year(year, plot=True):
 
     if plot:
 
-        # Figure 1
         plt.figure(figsize=(8, 5))
 
         plt.bar(
@@ -132,7 +132,6 @@ def sales_by_day_for_year(year, plot=True):
         plt.show()
 
 
-        # Figure 2
         plt.figure(figsize=(8, 5))
 
         plt.bar(
@@ -156,6 +155,85 @@ def sales_by_day_for_year(year, plot=True):
 
     return summary
 
+# python -c "from rossmann.analytics import sales_by_day_for_year; sales_by_day_for_year(2014)"
+
+def sales_by_day_for_full_years(csv_path=None, details=False):
+    """Υπολογίζει τις πωλήσεις ανά ημέρα και συγκρίνει τα πλήρη έτη."""
+    if csv_path is None:
+        csv_path = Path(DATA_DIR) / "train.csv"
+
+    train = pd.read_csv(
+        csv_path,
+        usecols=["Date", "DayOfWeek", "Open", "Sales"],
+        parse_dates=["Date"],
+    )
+    train["Year"] = train["Date"].dt.year
+
+    coverage = train.groupby("Year").agg(
+        First_date=("Date", "min"),
+        Last_date=("Date", "max"),
+        Days=("Date", "nunique"),
+        Total_sales=("Sales", "sum"),
+    )
+
+    first_day = pd.to_datetime(coverage.index.astype(str) + "-01-01")
+    coverage["Expected_days"] = 365 + first_day.is_leap_year.astype(int)
+    coverage["Full_year"] = coverage["Days"].eq(coverage["Expected_days"])
+
+    open_days = train.loc[train["Open"].eq(1)]
+
+    by_day = open_days.groupby(["Year", "DayOfWeek"])["Sales"].agg(
+        N="count",
+        Mean="mean",
+        Median="median",
+        Total="sum",
+    )
+
+    day_names = {
+        1: "Δευτέρα",
+        2: "Τρίτη",
+        3: "Τετάρτη",
+        4: "Πέμπτη",
+        5: "Παρασκευή",
+        6: "Σάββατο",
+        7: "Κυριακή",
+    }
+    by_day = by_day.rename(index=day_names, level="DayOfWeek")
+
+    full_years = coverage.index[coverage["Full_year"]]
+    comparison = by_day.loc[full_years, ["N", "Mean", "Median"]]
+    comparison = comparison.unstack("Year").swaplevel(axis=1)
+
+    columns = pd.MultiIndex.from_product(
+        [full_years, ["N", "Mean", "Median"]]
+    )
+    comparison = comparison.reindex(
+        index=list(day_names.values()),
+        columns=columns,
+    )
+
+    if details:
+        return coverage, by_day, comparison
+
+    return comparison
+
+#python -c "from rossmann.analytics import print_sales_by_day_report; print_sales_by_day_report()"
+def print_sales_by_day_report():
+    """Εμφανίζει μαζί την κάλυψη, τα ελλιπή έτη και την τελική σύγκριση."""
+    coverage, by_day, comparison = sales_by_day_for_full_years(details=True)
+
+    print("\n1. Χρονική κάλυψη και συνολικές πωλήσεις ανά έτος")
+    print(coverage.to_string())
+
+    print("\n2. Πωλήσεις ανά ημέρα εβδομάδας για τα έτη με ελλιπή κάλυψη")
+    for year in coverage.index[~coverage["Full_year"]]:
+        first_date = coverage.loc[year, "First_date"].strftime("%d/%m/%Y")
+        last_date = coverage.loc[year, "Last_date"].strftime("%d/%m/%Y")
+        print(f"\n{year} ({first_date} έως {last_date})")
+        print(by_day.loc[year].round(2).to_string())
+
+    print("\n3. Σύγκριση πωλήσεων ανά ημέρα εβδομάδας για τα πλήρη έτη")
+    print(comparison.round(2).to_string())
 
 def totalsalesofyear(store_number, year):
     train = pd.read_csv(os.path.join(DATA_DIR, "train.csv"), low_memory=False)
